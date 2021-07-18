@@ -3,7 +3,7 @@
 ;;
 ;;; Initialize internal state
 
-(defconst doom-version "2.0.9"
+(defconst doom-version "3.0.0-alpha"
   "Current version of Doom Emacs.")
 
 (defvar doom-init-p nil
@@ -21,7 +21,6 @@ envvar will enable this at startup.")
 (defconst doom-interactive-p (not noninteractive)
   "If non-nil, Emacs is in interactive mode.")
 
-(defconst EMACS27+   (> emacs-major-version 26))
 (defconst EMACS28+   (> emacs-major-version 27))
 (defconst IS-MAC     (eq system-type 'darwin))
 (defconst IS-LINUX   (eq system-type 'gnu/linux))
@@ -153,24 +152,28 @@ users).")
 ;;
 ;;; Native Compilation support (http://akrl.sdf.org/gccemacs.html)
 
-;; REVIEW Remove me after a couple weeks.
-(when (boundp 'comp-eln-load-path)
-  (defvaralias 'native-comp-eln-load-path 'comp-eln-load-path)
-  (defvaralias 'native-comp-warning-on-missing-source 'comp-warning-on-missing-source)
-  (defvaralias 'native-comp-driver-options 'comp-native-driver-options)
-  (defvaralias 'native-comp-async-query-on-exit 'comp-async-query-on-exit)
-  (defvaralias 'native-comp-async-report-warnings-errors 'comp-async-report-warnings-errors)
-  (defvaralias 'native-comp-async-env-modifier-form 'comp-async-env-modifier-form)
-  (defvaralias 'native-comp-async-all-done-hook 'comp-async-all-done-hook)
-  (defvaralias 'native-comp-async-cu-done-functions 'comp-async-cu-done-functions)
-  (defvaralias 'native-comp-async-jobs-number 'comp-async-jobs-number)
-  (defvaralias 'native-comp-never-optimize-functions 'comp-never-optimize-functions)
-  (defvaralias 'native-comp-bootstrap-deny-list 'comp-bootstrap-deny-list)
-  (defvaralias 'native-comp-always-compile 'comp-always-compile)
-  (defvaralias 'native-comp-verbose 'comp-verbose)
-  (defvaralias 'native-comp-debug 'comp-debug)
-  (defvaralias 'native-comp-speed 'comp-speed)
-  (defalias 'native-comp-limple-mode #'comp-limple-mode))
+;; REVIEW Remove after a month
+(when EMACS28+
+  (mapc (lambda (varset)
+          (unless (boundp (car varset))
+            (defvaralias (car varset) (cdr varset))))
+        '((native-comp-deferred-compilation . comp-deferred-compilation)
+          (native-comp-deferred-compilation-deny-list . comp-deferred-compilation-deny-list)
+          (native-comp-eln-load-path . comp-eln-load-path)
+          (native-comp-warning-on-missing-source . comp-warning-on-missing-source)
+          (native-comp-driver-options . comp-native-driver-options)
+          (native-comp-async-query-on-exit . comp-async-query-on-exit)
+          (native-comp-async-report-warnings-errors . comp-async-report-warnings-errors)
+          (native-comp-async-env-modifier-form . comp-async-env-modifier-form)
+          (native-comp-async-all-done-hook . comp-async-all-done-hook)
+          (native-comp-async-cu-done-functions . comp-async-cu-done-functions)
+          (native-comp-async-jobs-number . comp-async-jobs-number)
+          (native-comp-never-optimize-functions . comp-never-optimize-functions)
+          (native-comp-bootstrap-deny-list . comp-bootstrap-deny-list)
+          (native-comp-always-compile . comp-always-compile)
+          (native-comp-verbose . comp-verbose)
+          (native-comp-debug . comp-debug)
+          (native-comp-speed . comp-speed))))
 
 ;; Don't store eln files in ~/.emacs.d/eln-cache (they are likely to be purged
 ;; when upgrading Doom).
@@ -179,20 +182,13 @@ users).")
 
 (with-eval-after-load 'comp
   ;; HACK Disable native-compilation for some troublesome packages
-  (mapc (apply-partially #'add-to-list 'comp-deferred-compilation-deny-list)
+  (mapc (apply-partially #'add-to-list 'native-comp-deferred-compilation-deny-list)
         (let ((local-dir-re (concat "\\`" (regexp-quote doom-local-dir))))
           (list (concat "\\`" (regexp-quote doom-autoloads-file) "\\'")
                 (concat local-dir-re ".*/evil-collection-vterm\\.el\\'")
                 (concat local-dir-re ".*/with-editor\\.el\\'")
                 ;; https://github.com/nnicandro/emacs-jupyter/issues/297
-                (concat local-dir-re ".*/jupyter-channel\\.el\\'"))))
-  ;; Default to using all cores, rather than half of them, since we compile
-  ;; things ahead-of-time in a non-interactive session.
-  (defun doom--comp-use-all-cores-a ()
-    (if (zerop native-comp-async-jobs-number)
-        (setq comp-num-cpus (doom-system-cpus))
-      native-comp-async-jobs-number))
-  (advice-add #'comp-effective-async-max-jobs :override #'doom--comp-use-all-cores-a))
+                (concat local-dir-re ".*/jupyter-channel\\.el\\'")))))
 
 
 ;;
@@ -270,7 +266,7 @@ config.el instead."
 ;; indicates misconfiguration (don't rely on case insensitivity for file names).
 (setq auto-mode-case-fold nil)
 
-;; Disable bidirectional text rendering for a modest performance boost. I've set
+;; Disable bidirectional text scanning for a modest performance boost. I've set
 ;; this to `nil' in the past, but the `bidi-display-reordering's docs say that
 ;; is an undefined state and suggest this to be just as good:
 (setq-default bidi-display-reordering 'left-to-right
@@ -303,6 +299,7 @@ config.el instead."
 ;; so we use `gcmh' to stave off the GC while we're using Emacs, and provoke it
 ;; when it's idle.
 (setq gcmh-idle-delay 5  ; default is 15s
+      gcmh-high-cons-threshold (* 16 1024 1024)  ; 16mb
       gcmh-verbose doom-debug-p)
 
 ;; Emacs "updates" its ui more often than it needs to, so slow it down slightly
@@ -357,7 +354,6 @@ config.el instead."
       (when (boundp 'libgnutls-version)
         (concat "SECURE128:+SECURE192:-VERS-ALL"
                 (if (and (not IS-WINDOWS)
-                         (not (version< emacs-version "26.3"))
                          (>= libgnutls-version 30605))
                     ":+VERS-TLS1.3")
                 ":+VERS-TLS1.2"))
@@ -395,6 +391,14 @@ config.el instead."
   (unless doom-inhibit-local-var-hooks
     (setq-local doom-inhibit-local-var-hooks t)
     (doom-run-hooks (intern-soft (format "%s-local-vars-hook" major-mode)))))
+
+;; If the user has disabled `enable-local-variables', then
+;; `hack-local-variables-hook' is never triggered, so we trigger it at the end
+;; of `after-change-major-mode-hook':
+(defun doom-run-local-var-hooks-maybe-h ()
+  "Run `doom-run-local-var-hooks-h' if `enable-local-variables' is disabled."
+  (unless enable-local-variables
+    (doom-run-local-var-hooks-h)))
 
 
 ;;
@@ -448,6 +452,7 @@ intervals."
                     ;; or is unreadable, Emacs throws up file-missing errors, so
                     ;; we set it to a directory we know exists and is readable.
                     (let ((default-directory doom-emacs-dir)
+                          (inhibit-message t)
                           file-name-handler-alist)
                       (require req nil t))
                     t)
@@ -516,11 +521,8 @@ unreadable. Returns the names of envvars that were changed."
 (defun doom-run-hook (hook)
   "Run HOOK (a hook function) with better error handling.
 Meant to be used with `run-hook-wrapped'."
-  (doom-log "Running doom hook: %s" hook)
   (condition-case-unless-debug e
       (funcall hook)
-    (user-error
-     (warn "Warning: %s" (error-message-string e)))
     (error
      (signal 'doom-hook-error (list hook e))))
   ;; return nil so `run-hook-wrapped' won't short circuit
@@ -534,20 +536,25 @@ Is used as advice to replace `run-hooks'."
         (run-hook-wrapped hook #'doom-run-hook)
       (doom-hook-error
        (unless debug-on-error
-         (lwarn hook :error "Error running hook %S because: %s" (cadr e) (caddr e)))
+         (lwarn hook :error "Error running hook %S because: %s"
+                (if (symbolp (cadr e))
+                    (symbol-name (cadr e))
+                  (cadr e))
+                (caddr e)))
        (signal 'doom-hook-error (cons hook (cdr e)))))))
 
 (defun doom-run-hook-on (hook-var trigger-hooks)
   "Configure HOOK-VAR to be invoked exactly once when any of the TRIGGER-HOOKS
-are invoked. Once HOOK-VAR is triggered, it is reset to nil.
+are invoked *after* Emacs has initialized (to reduce false positives). Once
+HOOK-VAR is triggered, it is reset to nil.
 
 HOOK-VAR is a quoted hook.
-
 TRIGGER-HOOK is a list of quoted hooks and/or sharp-quoted functions."
   (dolist (hook trigger-hooks)
     (let ((fn (intern (format "%s-init-on-%s-h" hook-var hook))))
       (fset
        fn (lambda (&rest _)
+            ;; Only trigger this after Emacs has initialized.
             (when (and after-init-time
                        (or (daemonp)
                            ;; In some cases, hooks may be lexically unset to
@@ -564,10 +571,11 @@ TRIGGER-HOOK is a list of quoted hooks and/or sharp-quoted functions."
              ;; shenanigans. Just load everything immediately.
              (add-hook 'after-init-hook fn 'append))
             ((eq hook 'find-file-hook)
-             ;; Advise `after-find-file' instead of use `find-file-hook' because
-             ;; the latter isn't triggered late enough.
+             ;; Advise `after-find-file' instead of using `find-file-hook'
+             ;; because the latter is triggered too late (after the file has
+             ;; opened and modes are all set up).
              (advice-add 'after-find-file :before fn '((depth . -101))))
-            ((add-hook hook fn (if EMACS27+ -101))))
+            ((add-hook hook fn -101)))
       fn)))
 
 
@@ -635,8 +643,9 @@ to least)."
     ;; Load shell environment, optionally generated from 'doom env'. No need
     ;; to do so if we're in terminal Emacs, where Emacs correctly inherits
     ;; your shell environment.
-    (if (or (display-graphic-p)
-            (daemonp))
+    (if (and (or (display-graphic-p)
+                 (daemonp))
+             doom-env-file)
         (doom-load-envvars-file doom-env-file 'noerror))
 
     ;; Loads `use-package' and all the helper macros modules (and users) can use
@@ -651,7 +660,8 @@ to least)."
     (eval-after-load 'straight '(doom-initialize-packages))
 
     ;; Bootstrap the interactive session
-    (add-hook 'after-change-major-mode-hook #'doom-run-local-var-hooks-h)
+    (add-hook 'after-change-major-mode-hook #'doom-run-local-var-hooks-maybe-h 100)
+    (add-hook 'hack-local-variables-hook #'doom-run-local-var-hooks-h)
     (add-hook 'emacs-startup-hook #'doom-load-packages-incrementally-h)
     (add-hook 'window-setup-hook #'doom-display-benchmark-h)
     (doom-run-hook-on 'doom-first-buffer-hook '(find-file-hook doom-switch-buffer-hook))

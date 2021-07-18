@@ -124,7 +124,8 @@ ready to be pasted in a bug report on github."
       `((generated . ,(format-time-string "%b %d, %Y %H:%M:%S"))
         (system . ,(delq
                     nil (list (doom-system-distro-version)
-                              (sh "uname" "-msr")
+                              (when (executable-find "uname")
+                                (sh "uname" "-msr"))
                               (window-system))))
         (emacs . ,(delq
                    nil (list emacs-version
@@ -326,21 +327,6 @@ Some items are not supported by the `nsm.el' module."
 
 ;;
 ;;; Reporting bugs
-
-;;;###autoload
-(defun doom/issue-tracker ()
-  "Open Doom Emacs' issue tracker on Discourse."
-  (interactive)
-  (browse-url "https://discourse.doomemacs.org/c/support"))
-
-;;;###autoload
-(defun doom/report-bug ()
-  "Open the browser on our Discourse.
-
-If called when a backtrace buffer is present, it and the output of `doom-info'
-will be automatically appended to the result."
-  (interactive)
-  (browse-url "https://discourse.doomemacs.org/how2report"))
 
 ;;;###autoload
 (defun doom/copy-buffer-contents (buffer-name)

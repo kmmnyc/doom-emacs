@@ -4,10 +4,10 @@
   :unless (featurep! +tree)
   :hook (doom-first-buffer . undo-fu-mode)
   :config
-  ;; Store more undo history to prevent loss of data
-  (setq undo-limit 400000
-        undo-strong-limit 3000000
-        undo-outer-limit 3000000)
+  ;; Increase undo history limits to reduce likelihood of data loss
+  (setq undo-limit 400000           ; 400kb (default is 160kb)
+        undo-strong-limit 3000000   ; 3mb   (default is 240kb)
+        undo-outer-limit 48000000)  ; 48mb  (default is 24mb)
 
   (define-minor-mode undo-fu-mode
     "Enables `undo-fu' for the current session."
@@ -31,10 +31,16 @@
   :config
   (setq undo-fu-session-incompatible-files '("\\.gpg$" "/COMMIT_EDITMSG\\'" "/git-rebase-todo\\'"))
 
-  ;; HACK Fix #4993: prevent file names that are too long for the filesystem.
+  ;; HACK Fix #4993: we've advised `make-backup-file-name-1' to produced SHA1'ed
+  ;;      filenames to prevent file paths that are too long, so we force
+  ;;      `undo-fu-session--make-file-name' to use it instead of its own
+  ;;      home-grown overly-long-filename generator.
   ;; TODO PR this upstream; should be a universal issue
-  (advice-add #'undo-fu-session--make-file-name
-              :filter-args #'doom-make-hashed-backup-file-name-a)
+  (defadvice! +undo-fu-make-hashed-session-file-name-a (file)
+    :override #'undo-fu-session--make-file-name
+    (let ((backup-directory-alist `(("." . ,undo-fu-session-directory))))
+      (concat (make-backup-file-name-1 file)
+              (if undo-fu-session-compression ".gz" ".el"))))
 
   ;; HACK Use the faster zstd to compress undo files instead of gzip
   (when (executable-find "zstd")
@@ -54,12 +60,14 @@
   (setq undo-tree-visualizer-diff t
         undo-tree-auto-save-history t
         undo-tree-enable-undo-in-region t
-        ;; Increase undo-limits by a factor of ten to avoid emacs prematurely
-        ;; truncating the undo history and corrupting the tree. See
-        ;; https://github.com/syl20bnr/spacemacs/issues/12110
-        undo-limit 800000
-        undo-strong-limit 12000000
-        undo-outer-limit 120000000)
+        ;; Increase undo limits to avoid emacs prematurely truncating the undo
+        ;; history and corrupting the tree. This is larger than the undo-fu
+        ;; defaults because undo-tree trees consume exponentially more space,
+        ;; and then some when `undo-tree-enable-undo-in-region' is involved. See
+        ;; syl20bnr/spacemacs#12110
+        undo-limit 800000           ; 800kb (default is 160kb)
+        undo-strong-limit 12000000  ; 12mb  (default is 240kb)
+        undo-outer-limit 128000000) ; 128mb (default is 24mb)
 
   ;; Compress undo-tree history files with zstd, if available. File size isn't
   ;; the (only) concern here: the file IO barrier is slow for Emacs to cross;

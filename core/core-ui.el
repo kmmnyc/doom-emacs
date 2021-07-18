@@ -39,7 +39,8 @@ Must be a `font-spec', a font object, an XFT font string, or an XLFD string. See
 
 The defaults on macOS and Linux are Apple Color Emoji and Symbola, respectively.
 
-An omitted font size means to inherit `doom-font''s size.")
+WARNING: if you specify a size for this font it will hard-lock any usage of this
+font to that size. It's rarely a good idea to do so!")
 
 (defvar doom-emoji-fallback-font-families
   '("Apple Color Emoji"
@@ -246,29 +247,29 @@ windows, switch to `doom-fallback-buffer'. Otherwise, delegate to original
            (message "Can't kill the fallback buffer.")
            t)
           ((doom-real-buffer-p buf)
-           (let ((visible-p (delq (selected-window) (get-buffer-window-list buf nil t)))
-                 (doom-inhibit-switch-buffer-hooks t)
-                 (inhibit-redisplay t)
-                 buffer-list-update-hook)
+           (let ((visible-p (delq (selected-window) (get-buffer-window-list buf nil t))))
              (unless visible-p
                (when (and (buffer-modified-p buf)
                           (not (y-or-n-p
                                 (format "Buffer %s is modified; kill anyway?"
                                         buf))))
                  (user-error "Aborted")))
-             (when (or ;; if there aren't more real buffers than visible buffers,
-                    ;; then there are no real, non-visible buffers left.
-                    (not (cl-set-difference (doom-real-buffer-list)
-                                            (doom-visible-buffers)))
-                    ;; if we end up back where we start (or previous-buffer
-                    ;; returns nil), we have nowhere left to go
-                    (memq (switch-to-prev-buffer nil t) (list buf 'nil)))
-               (switch-to-buffer (doom-fallback-buffer)))
-             (unless visible-p
-               (with-current-buffer buf
-                 (restore-buffer-modified-p nil))
-               (kill-buffer buf))
-             (run-hooks 'buffer-list-update-hook)
+             (let ((inhibit-redisplay t)
+                   (doom-inhibit-switch-buffer-hooks t)
+                   buffer-list-update-hook)
+               (when (or ;; if there aren't more real buffers than visible buffers,
+                      ;; then there are no real, non-visible buffers left.
+                      (not (cl-set-difference (doom-real-buffer-list)
+                                              (doom-visible-buffers)))
+                      ;; if we end up back where we start (or previous-buffer
+                      ;; returns nil), we have nowhere left to go
+                      (memq (switch-to-prev-buffer nil t) (list buf 'nil)))
+                 (switch-to-buffer (doom-fallback-buffer)))
+               (unless visible-p
+                 (with-current-buffer buf
+                   (restore-buffer-modified-p nil))
+                 (kill-buffer buf)))
+             (run-hooks 'doom-switch-buffer-hook 'buffer-list-update-hook)
              t)))))
 
 
@@ -414,18 +415,13 @@ windows, switch to `doom-fallback-buffer'. Otherwise, delegate to original
   ;;      which users expect to control hl-line in Emacs.
   (define-globalized-minor-mode global-hl-line-mode hl-line-mode
     (lambda ()
-      (and (not hl-line-mode)
-           (cond ((null global-hl-line-modes) nil)
+      (and (cond (hl-line-mode nil)
+                 ((null global-hl-line-modes) nil)
                  ((eq global-hl-line-modes t))
                  ((eq (car global-hl-line-modes) 'not)
                   (not (derived-mode-p global-hl-line-modes)))
                  ((apply #'derived-mode-p global-hl-line-modes)))
            (hl-line-mode +1))))
-
-  ;; Not having to render the hl-line overlay in multiple buffers offers a tiny
-  ;; performance boost. I also don't need to see it in other buffers.
-  (setq hl-line-sticky-flag nil
-        global-hl-line-sticky-flag nil)
 
   ;; Temporarily disable `hl-line' when selection is active, since it doesn't
   ;; serve much purpose when the selection is so much more visible.
@@ -538,7 +534,7 @@ windows, switch to `doom-fallback-buffer'. Otherwise, delegate to original
 ;; languages like Lisp. I reduce it from it's default of 9 to reduce the
 ;; complexity of the font-lock keyword and hopefully buy us a few ms of
 ;; performance.
-(setq rainbow-delimiters-max-face-count 3)
+(setq rainbow-delimiters-max-face-count 4)
 
 
 ;;
@@ -567,10 +563,6 @@ windows, switch to `doom-fallback-buffer'. Otherwise, delegate to original
 ;;
 ;;; Theme & font
 
-;; Use a pseudo theme to store internal and user faces + custom.el settings
-;; without risk of them being written to `custom-file'.
-(custom-declare-theme 'doom nil)
-
 ;; User themes should live in ~/.doom.d/themes, not ~/.emacs.d
 (setq custom-theme-directory (concat doom-private-dir "themes/"))
 
@@ -578,9 +570,6 @@ windows, switch to `doom-fallback-buffer'. Otherwise, delegate to original
 (setq custom-theme-load-path
       (cons 'custom-theme-directory
             (delq 'custom-theme-directory custom-theme-load-path)))
-
-;; Underline looks a bit better when drawn lower
-(setq x-underline-at-descent-line t)
 
 (defun doom-init-fonts-h (&optional reload)
   "Loads `doom-font'."
@@ -592,16 +581,17 @@ windows, switch to `doom-fallback-buffer'. Otherwise, delegate to original
         (set-fontset-font t 'unicode font))
       (when doom-unicode-font
         (set-fontset-font t 'unicode doom-unicode-font))))
-  ;; Changes to a theme don't take effect immediately if the theme isn't `user',
-  ;; so we must force it to.
-  (let (custom--inhibit-theme-enable)
-    (apply #'custom-theme-set-faces 'doom
+  (apply #'custom-set-faces
+         (let ((attrs '(:weight unspecified :slant unspecified :width unspecified)))
            (append (when doom-font
-                     `((fixed-pitch ((t (:font ,doom-font))))))
+                     `((fixed-pitch ((t (:font ,doom-font ,@attrs))))))
                    (when doom-serif-font
-                     `((fixed-pitch-serif ((t (:font ,doom-serif-font))))))
+                     `((fixed-pitch-serif ((t (:font ,doom-serif-font ,@attrs))))))
                    (when doom-variable-pitch-font
-                     `((variable-pitch ((t (:font ,doom-variable-pitch-font)))))))))
+                     `((variable-pitch ((t (:font ,doom-variable-pitch-font ,@attrs)))))))))
+  ;; Never save these settings to `custom-file'
+  (dolist (sym '(fixed-pitch fixed-pitch-serif variable-pitch))
+    (put sym 'saved-face nil))
   (cond
    (doom-font
     ;; I avoid `set-frame-font' at startup because it is expensive; doing extra,
@@ -620,15 +610,12 @@ windows, switch to `doom-fallback-buffer'. Otherwise, delegate to original
 
 (defun doom-init-theme-h (&optional frame)
   "Load the theme specified by `doom-theme' in FRAME."
-  (if doom-theme
-      (unless (custom-theme-enabled-p doom-theme)
-        ;; Fix #1397: if `doom-init-theme-h' is used on `after-make-frame-functions'
-        ;; (for daemon sessions), the new frame must be focused to ensure the theme
-        ;; loads correctly.
-        (with-selected-frame (or frame (selected-frame))
-          (load-theme doom-theme t)))
-    ;; Ensure custom faces apply and have highest precendence
-    (enable-theme 'doom)))
+  (when (and doom-theme (not (custom-theme-enabled-p doom-theme)))
+    ;; Fix #1397: if `doom-init-theme-h' is used on `after-make-frame-functions'
+    ;; (for daemon sessions), the new frame must be focused to ensure the theme
+    ;; loads correctly.
+    (with-selected-frame (or frame (selected-frame))
+      (load-theme doom-theme t))))
 
 (defadvice! doom--load-theme-a (orig-fn theme &optional no-confirm no-enable)
   "Record `doom-theme', disable old themes, and trigger `doom-load-theme-hook'."
@@ -644,10 +631,8 @@ windows, switch to `doom-fallback-buffer'. Otherwise, delegate to original
       (prog1 (funcall orig-fn theme no-confirm no-enable)
         (when (and (not no-enable) (custom-theme-enabled-p theme))
           (setq doom-theme theme)
-          (put 'doom-theme 'previous-themes last-themes)
-          (doom-run-hooks 'doom-load-theme-hook)
-          ;; `doom' must have precedence
-          (enable-theme 'doom))))))
+          (put 'doom-theme 'previous-themes (or last-themes 'none))
+          (doom-run-hooks 'doom-load-theme-hook))))))
 
 
 ;;
@@ -679,16 +664,17 @@ windows, switch to `doom-fallback-buffer'. Otherwise, delegate to original
   (dolist (fn '(switch-to-buffer display-buffer))
     (advice-add fn :around #'doom-run-switch-buffer-hooks-a)))
 
+;; Apply `doom-font' et co
+(add-hook 'doom-after-init-modules-hook #'doom-init-fonts-h -100)
+
 ;; Apply `doom-theme'
 (add-hook (if (daemonp)
               'after-make-frame-functions
             'doom-after-init-modules-hook)
-          #'doom-init-theme-h)
+          #'doom-init-theme-h
+          -90)
 
-;; Apply `doom-font' et co
-(add-hook 'doom-after-init-modules-hook #'doom-init-fonts-h)
-
-(add-hook 'window-setup-hook #'doom-init-ui-h 'append)
+(add-hook 'window-setup-hook #'doom-init-ui-h 100)
 
 
 ;;
@@ -714,25 +700,11 @@ windows, switch to `doom-fallback-buffer'. Otherwise, delegate to original
   (fset 'define-fringe-bitmap #'ignore))
 
 (after! whitespace
-  (defun doom-disable-whitespace-mode-in-childframes-a (orig-fn)
+  (defun doom-is-childframes-p ()
     "`whitespace-mode' inundates child frames with whitespace markers, so
 disable it to fix all that visual noise."
-    (unless (frame-parameter nil 'parent-frame)
-      (funcall orig-fn)))
-  (add-function :around whitespace-enable-predicate #'doom-disable-whitespace-mode-in-childframes-a))
-
-;; Don't display messages in the minibuffer when using the minibuffer
-;; DEPRECATED Remove when Emacs 26.x support is dropped.
-(eval-when! (not EMACS27+)
-  (defmacro doom-silence-motion-key (command key)
-    (let ((key-command (intern (format "doom/silent-%s" command))))
-      `(progn
-         (defun ,key-command ()
-           (interactive)
-           (ignore-errors (call-interactively ',command)))
-         (define-key minibuffer-local-map (kbd ,key) #',key-command))))
-  (doom-silence-motion-key backward-delete-char "<backspace>")
-  (doom-silence-motion-key delete-char "<delete>"))
+    (frame-parameter nil 'parent-frame))
+  (add-function :before-while whitespace-enable-predicate #'doom-is-childframes-p))
 
 (provide 'core-ui)
 ;;; core-ui.el ends here
