@@ -4,13 +4,21 @@
   "What direction to open new windows from the status buffer.
 For example, diffs and log buffers. Accepts `left', `right', `up', and `down'.")
 
+(defvar +magit-fringe-size 14
+  "Size of the fringe in magit-mode buffers.
+
+Can be an integer or a cons cell whose CAR and CDR are integer widths for the
+left and right fringe.
+
+Only has an effect in GUI Emacs.")
+
 
 ;;
 ;;; Packages
 
 (use-package! magit
   :commands magit-file-delete
-  :defer-incrementally (dash f s with-editor git-commit package eieio lv transient)
+  :defer-incrementally (dash f s with-editor git-commit package eieio transient)
   :init
   (setq magit-auto-revert-mode nil)  ; we do this ourselves further down
   ;; Must be set early to prevent ~/.emacs.d/transient from being created
@@ -106,6 +114,17 @@ For example, diffs and log buffers. Accepts `left', `right', `up', and `down'.")
   ;; Close transient with ESC
   (define-key transient-map [escape] #'transient-quit-one)
 
+  (add-hook! 'magit-mode-hook
+    (add-hook! 'window-configuration-change-hook :local
+      (defun +magit-enlargen-fringe-h ()
+        "Make fringe larger in magit."
+        (and (display-graphic-p)
+             (derived-mode-p 'magit-mode)
+             +magit-fringe-size
+             (let ((left  (or (car-safe +magit-fringe-size) +magit-fringe-size))
+                   (right (or (cdr-safe +magit-fringe-size) +magit-fringe-size)))
+               (set-window-fringes nil left right))))))
+
   ;; An optimization that particularly affects macOS and Windows users: by
   ;; resolving `magit-git-executable' Emacs does less work to find the
   ;; executable in your PATH, which is great because it is called so frequently.
@@ -133,6 +152,7 @@ For example, diffs and log buffers. Accepts `left', `right', `up', and `down'.")
   :commands forge-create-pullreq forge-create-issue
   :preface
   (setq forge-database-file (concat doom-etc-dir "forge/forge-database.sqlite"))
+  (setq forge-add-default-bindings (not (featurep! :editor evil +everywhere)))
   :config
   ;; All forge list modes are derived from `forge-topic-list-mode'
   (map! :map forge-topic-list-mode-map :n "q" #'kill-current-buffer)
@@ -168,14 +188,26 @@ ensure it is built when we actually use Forge."
             (add-hook hook #'forge-bug-reference-setup)))))))
 
 
-(use-package! github-review
+(use-package! code-review
+  :when (featurep! +forge)
   :after magit
+  :init
+  ;; TODO This needs to either a) be cleaned up or better b) better map things
+  ;; to fit
+  (after! evil-collection-magit
+    (dolist (binding evil-collection-magit-mode-map-bindings)
+      (pcase-let* ((`(,states _ ,evil-binding ,fn) binding))
+        (dolist (state states)
+          (evil-collection-define-key state 'code-review-mode-map evil-binding fn))))
+    (evil-set-initial-state 'code-review-mode evil-default-state))
+  (setq code-review-db-database-file (concat doom-etc-dir "code-review/code-review-db-file.sqlite")
+        code-review-log-file (concat doom-etc-dir "code-review/code-review-error.log"))
   :config
   (transient-append-suffix 'magit-merge "i"
-    '("y" "Review pull request" +magit/start-github-review))
+    '("y" "Review pull request" +magit/start-code-review))
   (after! forge
     (transient-append-suffix 'forge-dispatch "c u"
-      '("c r" "Review pull request" +magit/start-github-review))))
+      '("c r" "Review pull request" +magit/start-code-review))))
 
 
 (use-package! magit-todos
@@ -202,6 +234,9 @@ ensure it is built when we actually use Forge."
   ;; q is enough; ESC is way too easy for a vimmer to accidentally press,
   ;; especially when traversing modes in magit buffers.
   (evil-define-key* 'normal magit-status-mode-map [escape] nil)
+
+  (after! code-review
+    (undefine-key! code-review-mode-map "M-1" "M-2" "M-3" "M-4" "1" "2" "3" "4" "0"))
 
   ;; Some extra vim-isms I thought were missing from upstream
   (evil-define-key* '(normal visual) magit-mode-map

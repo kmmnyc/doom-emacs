@@ -65,10 +65,11 @@ purpose.")
 (require 'core-packages)
 (doom-initialize-core-packages)
 
-;; Don't generate superfluous files when writing temp buffers
-(setq make-backup-files nil)
-;; Stop user configuration from interfering with package management
-(setq enable-dir-local-variables nil)
+;; Default to using all cores, rather than half of them, since we compile things
+;; ahead-of-time in a non-interactive session.
+(defadvice! doom--comp-use-all-cores-a (&rest _)
+  :before #'comp-effective-async-max-jobs
+  (setq comp-num-cpus (doom-system-cpus)))
 
 
 ;;
@@ -78,8 +79,10 @@ purpose.")
     ((help-p        ["-h" "--help"]  "Same as help command")
      (auto-accept-p ["-y" "--yes"]   "Auto-accept all confirmation prompts")
      (debug-p       ["-d" "--debug"] "Enables on verbose output")
+     (loadfile      ["-l" "--load" file] "Load an elisp FILE before executing any commands")
      (doomdir       ["--doomdir"  dir] "Use the private module at DIR (e.g. ~/.doom.d)")
      (localdir      ["--localdir" dir] "Use DIR as your local storage directory")
+     (nocolor       ["-C" "--nocolor"] "Disable colored output")
      &optional command
      &rest args)
   "A command line interface for managing Doom Emacs.
@@ -95,6 +98,8 @@ Environment variables:
   DOOMLOCALDIR  Where to store local files (normally ~/.emacs.d/.local)"
   (condition-case e
       (with-output-to! doom--cli-log-buffer
+        (when nocolor
+          (setq doom-output-backend nil))
         (catch 'exit
           (when (and (not (getenv "__DOOMRESTART"))
                      (or doomdir
@@ -103,7 +108,7 @@ Environment variables:
                          auto-accept-p))
             (when doomdir
               (setenv "DOOMDIR" (file-name-as-directory doomdir))
-              (print! (info "DOOMDIR=%s") localdir))
+              (print! (info "DOOMDIR=%s") doomdir))
             (when localdir
               (setenv "DOOMLOCALDIR" (file-name-as-directory localdir))
               (print! (info "DOOMLOCALDIR=%s") localdir))
@@ -114,30 +119,42 @@ Environment variables:
               (setenv "YES" auto-accept-p)
               (print! (info "Confirmations auto-accept enabled")))
             (throw 'exit "__DOOMRESTART=1 $@"))
-          ;; TODO Rotate logs out, instead of overwriting them?
-          (delete-file doom-cli-log-file)
-          (delete-file doom-cli-log-error-file)
+          (when loadfile
+            (load (doom-path loadfile) nil t t))
           (when help-p
             (when command
               (push command args))
             (setq command "help"))
-          (if (null command)
-              (doom-cli-execute "help")
-            (let ((start-time (current-time)))
-              (run-hooks 'doom-cli-pre-hook)
-              (when (apply #'doom-cli-execute command args)
-                (run-hooks 'doom-cli-post-hook)
-                (print! (success "Finished in %s")
-                        (let* ((duration (float-time (time-subtract (current-time) before-init-time)))
-                               (hours   (/ (truncate duration) 60 60))
-                               (minutes (- (/ (truncate duration) 60) (* hours 60)))
-                               (seconds (- duration (* hours 60 60) (* minutes 60))))
-                          (string-join
-                           (delq
-                            nil (list (unless (zerop hours)   (format "%dh" hours))
-                                      (unless (zerop minutes) (format "%dm" minutes))
-                                      (format (if (> duration 60) "%ds" "%.4fs")
-                                              seconds)))))))))))
+          (cons
+           t (if (null command)
+                 (doom-cli-execute "help")
+               (let ((start-time (current-time)))
+                 (run-hooks 'doom-cli-pre-hook)
+                 (unless (getenv "__DOOMRESTART")
+                   (print! (start "Executing 'doom %s' with Emacs %s at %s")
+                           (string-join
+                            (cons (or (ignore-errors
+                                        (doom-cli-name (doom-cli-get command)))
+                                      command)
+                                  args)
+                            " ")
+                           emacs-version
+                           (format-time-string "%Y-%m-%d %H:%M:%S")))
+                 (print-group!
+                  (when-let (result (apply #'doom-cli-execute command args))
+                    (run-hooks 'doom-cli-post-hook)
+                    (print! (success "Finished in %s")
+                            (let* ((duration (float-time (time-subtract (current-time) before-init-time)))
+                                   (hours   (/ (truncate duration) 60 60))
+                                   (minutes (- (/ (truncate duration) 60) (* hours 60)))
+                                   (seconds (- duration (* hours 60 60) (* minutes 60))))
+                              (string-join
+                               (delq
+                                nil (list (unless (zerop hours)   (format "%dh" hours))
+                                          (unless (zerop minutes) (format "%dm" minutes))
+                                          (format (if (> duration 60) "%ds" "%.4fs")
+                                                  seconds))))))
+                    result)))))))
     ;; TODO Not implemented yet
     (doom-cli-command-not-found-error
      (print! (error "Command 'doom %s' not recognized") (string-join (cdr e) " "))
@@ -185,6 +202,7 @@ Environment variables:
 (load! "cli/upgrade")
 (load! "cli/packages")
 (load! "cli/autoloads")
+(load! "cli/ci")
 
 (defcligroup! "Diagnostics"
   "For troubleshooting and diagnostics"
@@ -223,6 +241,16 @@ best to run Doom out of ~/.emacs.d and ~/.doom.d."
 (load! doom-module-init-file doom-private-dir t)
 (maphash (doom-module-loader doom-cli-file) doom-modules)
 (load! doom-cli-file doom-private-dir t)
+
+
+;; Don't generate superfluous files when writing temp buffers
+(setq make-backup-files nil)
+;; Stop user configuration from interfering with package management
+(setq enable-dir-local-variables nil)
+;; Reduce ambiguity, embrace specificity. It's more predictable.
+(setq-default case-fold-search nil)
+;; Don't clog the user's trash with anything we clean up in this session.
+(setq delete-by-moving-to-trash nil)
 
 (provide 'core-cli)
 ;;; core-cli.el ends here

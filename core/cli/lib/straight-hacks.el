@@ -36,11 +36,11 @@ original state.")
 
 ;; HACK Replace GUI popup prompts (which hang indefinitely in tty Emacs) with
 ;;      simple prompts.
-(defadvice! doom--straight-fallback-to-y-or-n-prompt-a (orig-fn &optional prompt)
+(defadvice! doom--straight-fallback-to-y-or-n-prompt-a (fn &optional prompt)
   :around #'straight-are-you-sure
   (or doom-auto-accept
       (if doom-interactive-p
-          (funcall orig-fn prompt)
+          (funcall fn prompt)
         (y-or-n-p (format! "%s" (or prompt ""))))))
 
 (defun doom--straight-recommended-option-p (prompt option)
@@ -48,11 +48,11 @@ original state.")
            if (string-match-p prompt-re prompt)
            return (string-match-p opt-re option)))
 
-(defadvice! doom--straight-fallback-to-tty-prompt-a (orig-fn prompt actions)
+(defadvice! doom--straight-fallback-to-tty-prompt-a (fn prompt actions)
   "Modifies straight to prompt on the terminal when in noninteractive sessions."
   :around #'straight--popup-raw
   (if doom-interactive-p
-      (funcall orig-fn prompt actions)
+      (funcall fn prompt actions)
     (let ((doom--straight-auto-options doom--straight-auto-options))
       ;; We can't intercept C-g, so no point displaying any options for this key
       ;; when C-c is the proper way to abort batch Emacs.
@@ -106,18 +106,15 @@ original state.")
                        answer))
              (funcall (nth answer options)))))))))
 
-(defadvice! doom--straight-respect-print-indent-a (args)
-  "Indent straight progress messages to respect `doom-output-indent', so we
-don't have to pass whitespace to `straight-use-package's fourth argument
-everywhere we use it (and internally)."
-  :filter-args #'straight-use-package
-  (cl-destructuring-bind
-      (melpa-style-recipe &optional no-clone no-build cause interactive)
-      args
-    (list melpa-style-recipe no-clone no-build
-          (if (and (not cause)
-                   (boundp 'doom-output-indent)
-                   (> doom-output-indent 0))
-              (make-string (1- (or doom-output-indent 1)) 32)
-            cause)
-          interactive)))
+(setq straight-arrow " > ")
+(defadvice! doom--straight-respect-print-indent-a (string &rest objects)
+  "Same as `message' (which see for STRING and OBJECTS) normally.
+However, in batch mode, print to stdout instead of stderr."
+  :override #'straight--output
+  (let ((msg (apply #'format string objects)))
+    (save-match-data
+      (when (string-match (format "^%s\\(.+\\)$" (regexp-quote straight-arrow)) msg)
+        (setq msg (match-string 1 msg))))
+    (and (string-match-p "^\\(Cloning\\|\\(Reb\\|B\\)uilding\\) " msg)
+         (not (string-suffix-p "...done" msg))
+         (doom--print (doom--format (concat "> " msg))))))

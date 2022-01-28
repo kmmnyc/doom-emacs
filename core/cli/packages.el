@@ -1,6 +1,12 @@
 ;; -*- no-byte-compile: t; -*-
 ;;; core/cli/packages.el
 
+(require 'comp nil t)
+
+
+;;
+;;; Commands
+
 (defcli! (update u) (&rest _)
   "This command was removed."
   :hidden t
@@ -66,13 +72,9 @@ list remains lean."
   (straight--process-with-result
    (straight--process-run
     "git" "log" "--oneline" "--no-merges"
-    "-n" "26" end-ref (concat "^" (regexp-quote start-ref)))
+    end-ref (concat "^" (regexp-quote start-ref)))
    (if success
-       (let* ((output (string-trim-right stdout))
-              (lines (split-string output "\n")))
-         (if (> (length lines) 25)
-             (concat (string-join (butlast lines 1) "\n") "\n[...]")
-           output))
+       (string-trim-right (or stdout ""))
      (format "ERROR: Couldn't collect commit list because: %s" stderr))))
 
 (defmacro doom--straight-with (form &rest body)
@@ -214,13 +216,13 @@ list remains lean."
          (comp-async-runnings))
     0))
 
-(defun doom--wait-for-compile-jobs ()
+(defun doom--wait-for-native-compile-jobs ()
   "Wait for all pending async native compilation jobs."
   (cl-loop for pending = (doom--native-compile-jobs)
            with previous = 0
            while (not (zerop pending))
            if (/= previous pending) do
-           (print! (info "\033[KWaiting for %d async jobs...\033[1A" pending))
+           (print! (start "\033[KNatively compiling %d files...\033[1A" pending))
            (setq previous pending)
            else do
            (let ((inhibit-message t))
@@ -228,20 +230,21 @@ list remains lean."
 
 (defun doom--write-missing-eln-errors ()
   "Write .error files for any expected .eln files that are missing."
-  (cl-loop for file in doom--eln-output-expected
-           for eln-name = (doom--eln-file-name file)
-           for eln-file = (doom--eln-output-file eln-name)
-           for error-file = (doom--eln-error-file eln-name)
-           unless (or (file-exists-p eln-file)
-                      (file-newer-than-file-p error-file file))
-           do (make-directory (file-name-directory error-file) 'parents)
-              (write-region "" nil error-file)
-              (doom-log "Wrote %s" error-file))
-  (setq doom--eln-output-expected nil))
+  (when NATIVECOMP
+    (cl-loop for file in doom--eln-output-expected
+             for eln-name = (doom--eln-file-name file)
+             for eln-file = (doom--eln-output-file eln-name)
+             for error-file = (doom--eln-error-file eln-name)
+             unless (or (file-exists-p eln-file)
+                        (file-newer-than-file-p error-file file))
+             do (make-directory (file-name-directory error-file) 'parents)
+             (write-region "" nil error-file)
+             (doom-log "Wrote %s" error-file))
+    (setq doom--eln-output-expected nil)))
 
 (defun doom--compile-site-packages ()
   "Queue async compilation for all non-doom Elisp files."
-  (when (featurep 'comp)
+  (when NATIVECOMP
     (cl-loop with paths = (cl-loop for path in load-path
                                    unless (string-prefix-p doom-local-dir path)
                                    collect path)
@@ -250,7 +253,7 @@ list remains lean."
                      (not (doom--find-eln-file (doom--eln-file-name file)))
                      (not (cl-some (lambda (re)
                                      (string-match-p re file))
-                                   comp-deferred-compilation-deny-list))) do
+                                   native-comp-deferred-compilation-deny-list))) do
              (doom-log "Compiling %s" file)
              (native-compile-async file))))
 
@@ -289,8 +292,9 @@ declaration) or dependency thereof that hasn't already been."
                    (signal 'doom-package-error (list package e))))))
          (progn
            (doom--compile-site-packages)
-           (doom--wait-for-compile-jobs)
-           (doom--write-missing-eln-errors)
+           (when NATIVECOMP
+             (doom--wait-for-native-compile-jobs)
+             (doom--write-missing-eln-errors))
            (print! (success "\033[KInstalled %d packages") (length built)))
        (print! (info "No packages need to be installed"))
        nil))))
@@ -332,12 +336,10 @@ declaration) or dependency thereof that hasn't already been."
                          (want-native-compile
                           (or (eq build t)
                               (memq 'native-compile build))))
-                    (when (eq (car-safe build) :not)
-                      (setq want-byte-compile (not want-byte-compile)
-                            want-native-compile (not want-native-compile)))
-                    (unless (and (require 'comp nil t)
-                                 (featurep 'nativecomp)
-                                 (ignore-errors (native-comp-available-p)))
+                    (and (eq (car-safe build) :not)
+                         (setq want-byte-compile (not want-byte-compile)
+                               want-native-compile (not want-native-compile)))
+                    (unless NATIVECOMP
                       (setq want-native-compile nil))
                     (and (or want-byte-compile want-native-compile)
                          (or (file-newer-than-file-p repo-dir build-dir)
@@ -354,8 +356,16 @@ declaration) or dependency thereof that hasn't already been."
                 (straight-use-package (intern package))))
          (progn
            (doom--compile-site-packages)
-           (doom--wait-for-compile-jobs)
-           (doom--write-missing-eln-errors)
+           (when NATIVECOMP
+             (doom--wait-for-native-compile-jobs)
+             (doom--write-missing-eln-errors))
+           ;; HACK Every time you save a file in a package that straight tracks,
+           ;;      it is recorded in ~/.emacs.d/.local/straight/modified/.
+           ;;      Typically, straight will clean these up after rebuilding, but
+           ;;      Doom's use-case circumnavigates that, leaving these files
+           ;;      there and causing a rebuild of those packages each time `doom
+           ;;      sync' or similar is run, so we clean it up ourselves:
+           (delete-directory (straight--modified-dir) 'recursive)
            (print! (success "\033[KRebuilt %d package(s)") (length built)))
        (print! (info "No packages need rebuilding"))
        nil))))
@@ -366,6 +376,7 @@ declaration) or dependency thereof that hasn't already been."
   "Updates packages."
   (doom-initialize-packages)
   (doom--barf-if-incomplete-packages)
+  (doom--cli-recipes-update)
   (let* ((repo-dir (straight--repos-dir))
          (pinned (doom-package-pinned-list))
          (recipes (doom-package-recipe-list))
@@ -375,8 +386,6 @@ declaration) or dependency thereof that hasn't already been."
          (esc (unless doom-debug-p "\033[1A"))
          (i 0)
          errors)
-    (when recipes
-      (doom--cli-recipes-update))
     (print! (start "Updating packages (this may take a while)..."))
     (doom--with-package-recipes recipes (recipe package type local-repo)
       (cl-incf i)
@@ -400,15 +409,17 @@ declaration) or dependency thereof that hasn't already been."
                    (target-ref
                     (cdr (or (assoc local-repo pinned)
                              (assoc package pinned))))
+                   commits
                    output)
                (or (cond
                     ((not (stringp target-ref))
                      (print! (start "\033[K(%d/%d) Fetching %s...%s") i total package esc)
                      (doom--straight-with (straight-vc-fetch-from-remote recipe)
                        (when .it
-                         (setq output .output)
                          (straight-merge-package package)
                          (setq target-ref (straight-vc-get-commit type local-repo))
+                         (setq output (doom--commit-log-between ref target-ref)
+                               commits (length (split-string output "\n" t)))
                          (or (not (doom--same-commit-p target-ref ref))
                              (cl-return)))))
 
@@ -424,7 +435,8 @@ declaration) or dependency thereof that hasn't already been."
                             (straight-vc-commit-present-p recipe target-ref)))
                      (straight-vc-check-out-commit recipe target-ref)
                      (or (not (eq type 'git))
-                         (setq output (doom--commit-log-between ref target-ref)))
+                         (setq output (doom--commit-log-between ref target-ref)
+                               commits (length (split-string output "\n" t))))
                      (doom--same-commit-p target-ref (straight-vc-get-commit type local-repo)))
 
                     ((print! (start "\033[K(%d/%d) Re-cloning %s...") i total local-repo esc)
@@ -435,7 +447,8 @@ declaration) or dependency thereof that hasn't already been."
                         (straight-use-package (intern package) nil 'no-build))
                        (prog1 (file-directory-p repo)
                          (or (not (eq type 'git))
-                             (setq output (doom--commit-log-between ref target-ref)))))))
+                             (setq output (doom--commit-log-between ref target-ref)
+                                   commits (length (split-string output "\n" t))))))))
                    (progn
                      (print! (warn "\033[K(%d/%d) Failed to fetch %s")
                              i total local-repo)
@@ -444,11 +457,20 @@ declaration) or dependency thereof that hasn't already been."
                      (cl-return)))
                (puthash local-repo t repos-to-rebuild)
                (puthash package t packages-to-rebuild)
-               (print! (success "\033[K(%d/%d) %s updated (%s -> %s)")
+               (print! (success "\033[K(%d/%d) %s: %s -> %s%s")
                        i total local-repo
                        (doom--abbrev-commit ref)
-                       (doom--abbrev-commit target-ref))
+                       (doom--abbrev-commit target-ref)
+                       (if (and (integerp commits) (> commits 0))
+                           (format " [%d commit(s)]" commits)
+                         ""))
                (unless (string-empty-p output)
+                 (let ((lines (split-string output "\n")))
+                   (setq output
+                         (if (> (length lines) 20)
+                             (concat (string-join (cl-subseq (butlast lines 1) 0 20) "\n")
+                                     "\n[...]")
+                           output)))
                  (print-group! (print! "%s" (indent 2 output)))))
            (user-error
             (signal 'user-error (error-message-string e)))
@@ -487,6 +509,8 @@ declaration) or dependency thereof that hasn't already been."
       (delq nil (mapcar #'doom--cli-packages-purge-build builds))))))
 
 (cl-defun doom--cli-packages-regraft-repo (repo)
+  (unless repo
+    (error "No repo specified for regrafting"))
   (let ((default-directory (straight--repos-dir repo)))
     (unless (file-directory-p ".git")
       (print! (warn "\033[Krepos/%s is not a git repo, skipping" repo))
@@ -524,12 +548,13 @@ declaration) or dependency thereof that hasn't already been."
 
 (defun doom--cli-packages-purge-repo (repo)
   (let ((repo-dir (straight--repos-dir repo)))
-    (delete-directory repo-dir 'recursive)
-    (delete-file (straight--modified-file repo))
-    (if (file-directory-p repo-dir)
-        (ignore (print! (error "Failed to purge repos/%s" repo)))
-      (print! (success "Purged repos/%s" repo))
-      t)))
+    (when (file-directory-p repo-dir)
+      (delete-directory repo-dir 'recursive)
+      (delete-file (straight--modified-file repo))
+      (if (file-directory-p repo-dir)
+          (ignore (print! (error "Failed to purge repos/%s" repo)))
+        (print! (success "Purged repos/%s" repo))
+        t))))
 
 (defun doom--cli-packages-purge-repos (repos)
   (if (not repos)
@@ -618,7 +643,7 @@ If ELPA-P, include packages installed with package.el (M-x package-install)."
            (if (not regraft-repos-p)
                (ignore (print! (info "Skipping regrafting")))
              (doom--cli-packages-regraft-repos repos-to-regraft))
-           (when (require 'comp nil t)
+           (when NATIVECOMP
              (if (not eln-p)
                  (ignore (print! (info "Skipping native bytecode")))
                (doom--cli-packages-purge-eln))))))))

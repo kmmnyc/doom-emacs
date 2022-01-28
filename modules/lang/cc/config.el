@@ -70,9 +70,9 @@ This is ignored by ccls.")
   ;; HACK Suppress 'Args out of range' error in when multiple modifications are
   ;;      performed at once in a `c++-mode' buffer, e.g. with `iedit' or
   ;;      multiple cursors.
-  (undefadvice! +cc--suppress-silly-errors-a (orig-fn &rest args)
+  (undefadvice! +cc--suppress-silly-errors-a (fn &rest args)
     :around #'c-after-change-mark-abnormal-strings
-    (ignore-errors (apply orig-fn args)))
+    (ignore-errors (apply fn args)))
 
   ;; Custom style, based off of linux
   (setq c-basic-offset tab-width
@@ -276,7 +276,7 @@ If rtags or rdm aren't available, fail silently instead of throwing a breaking e
 (use-package! ccls
   :when (featurep! +lsp)
   :unless (featurep! :tools lsp +eglot)
-  :hook (lsp-lens-mode . ccls-code-lens-mode)
+  :defer t
   :init
   (defvar ccls-sem-highlight-method 'font-lock)
   (after! projectile

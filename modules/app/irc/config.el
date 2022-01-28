@@ -141,6 +141,10 @@ playback.")
   ;; Fail gracefully if not in a circe buffer
   (global-set-key [remap tracking-next-buffer] #'+irc/tracking-next-buffer)
 
+  (when (featurep! :completion vertico)
+    (after! consult
+      (add-to-list 'consult-buffer-sources '+irc--consult-circe-source 'append)))
+
   (map! :localleader
         (:map circe-mode-map
           "a" #'tracking-next-buffer
@@ -149,8 +153,7 @@ playback.")
           "p" #'circe-command-PART
           "Q" #'+irc/quit
           "R" #'circe-reconnect
-          (:when (featurep! :completion ivy)
-            "c" #'+irc/ivy-jump-to-channel))
+          "c" #'+irc/jump-to-channel)
         (:map circe-channel-mode-map
           "n" #'circe-command-NAMES)))
 

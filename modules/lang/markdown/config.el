@@ -22,9 +22,12 @@ capture, the end position, and the output buffer.")
         markdown-enable-wiki-links t
         markdown-italic-underscore t
         markdown-asymmetric-header t
-        markdown-fontify-code-blocks-natively t
         markdown-gfm-additional-languages '("sh")
         markdown-make-gfm-checkboxes-buttons t
+
+        ;; HACK Due to jrblevin/markdown-mode#578, invoking `imenu' throws a
+        ;;      'wrong-type-argument consp nil' error if you use native-comp.
+        markdown-nested-imenu-heading-index (not (ignore-errors (native-comp-available-p)))
 
         ;; `+markdown-compile' offers support for many transpilers (see
         ;; `+markdown-compile-functions'), which it tries until one succeeds.
@@ -74,7 +77,7 @@ capture, the end position, and the output buffer.")
 
   ;; HACK Prevent mis-fontification of YAML metadata blocks in `markdown-mode'
   ;;      which occurs when the first line contains a colon in it. See
-  ;;      https://github.com/jrblevin/markdown-mode/issues/328.
+  ;;      jrblevin/markdown-mode#328.
   (defadvice! +markdown-disable-front-matter-fontification-a (&rest _)
     :override #'markdown-match-generic-metadata
     (ignore (goto-char (point-max))))

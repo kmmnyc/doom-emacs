@@ -58,9 +58,12 @@ Why this over exec-path-from-shell?
 
 (defvar doom-env-blacklist
   '(;; State that may be problematic if overwritten
-    "^HOME$" "^\\(OLD\\)?PWD$" "^SHLVL$" "^PS1$" "^R?PROMPT$" "^TERM$" "^USER$"
-    ;; X server or services' variables
-    "^DISPLAY$" "^DBUS_SESSION_BUS_ADDRESS$" "^XAUTHORITY$"
+    "^HOME$" "^\\(OLD\\)?PWD$" "^SHLVL$" "^PS1$" "^R?PROMPT$" "^TERM\\(CAP\\)?$"
+    "^USER$"
+    ;; X server or services' variables that shouldn't be persisted
+    "^DISPLAY$" "^DBUS_SESSION_BUS_ADDRESS$" "^XAUTHORITY$" "^XDG_SESSION_TYPE$"
+    ;; Windows+WSL envvars that shouldn't be persisted
+    "^WSL_INTEROP$"
     ;; ssh and gpg variables (likely to become stale)
     "^SSH_\\(AUTH_SOCK\\|AGENT_PID\\)$" "^\\(SSH\\|GPG\\)_TTY$"
     "^GPG_AGENT_INFO$"

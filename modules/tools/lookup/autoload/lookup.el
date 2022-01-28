@@ -188,15 +188,16 @@ This can be passed nil as its second argument to unset handlers for MODES. e.g.
                         (xref-find-backend)
                         identifier)))
     (when xrefs
-      (let ((marker-ring (ring-copy xref--marker-ring)))
+      (let* ((jumped nil)
+             (xref-after-jump-hook
+              (cons (lambda () (setq jumped t))
+                    xref-after-jump-hook)))
         (funcall (or show-fn #'xref--show-defs)
                  (lambda () xrefs)
                  nil)
         (if (cdr xrefs)
             'deferred
-          ;; xref will modify its marker stack when it finds a result to jump to.
-          ;; Use that to determine success.
-          (not (equal xref--marker-ring marker-ring)))))))
+          jumped)))))
 
 (defun +lookup-dictionary-definition-backend-fn (identifier)
   "Look up dictionary definition for IDENTIFIER."
@@ -234,8 +235,8 @@ This backend prefers \"just working\" over accuracy."
 (defun +lookup-project-search-backend-fn (identifier)
   "Conducts a simple project text search for IDENTIFIER.
 
-Uses and requires `+ivy-file-search' or `+helm-file-search'. Will return nil if
-neither is available. These require ripgrep to be installed."
+Uses and requires `+ivy-file-search', `+helm-file-search', or `+vertico-file-search'.
+Will return nil if neither is available. These require ripgrep to be installed."
   (unless identifier
     (let ((query (rxt-quote-pcre identifier)))
       (ignore-errors
@@ -244,6 +245,9 @@ neither is available. These require ripgrep to be installed."
                t)
               ((featurep! :completion helm)
                (+helm-file-search :query query)
+               t)
+              ((featurep! :completion vertico)
+               (+vertico-file-search :query query)
                t))))))
 
 (defun +lookup-evil-goto-definition-backend-fn (_identifier)
@@ -277,6 +281,9 @@ otherwise falling back to ffap.el (find-file-at-point)."
           ((and (featurep! :completion ivy)
                 (doom-project-p))
            (counsel-file-jump guess (doom-project-root)))
+          ((and (featurep! :completion vertico)
+                (doom-project-p))
+           (+vertico/find-file-in (doom-project-root) guess))
           ((find-file-at-point (ffap-prompter guess))))
     t))
 
@@ -284,20 +291,28 @@ otherwise falling back to ffap.el (find-file-at-point)."
   "Searches for a bug reference in user/repo#123 or #123 format and opens it in
 the browser."
   (require 'bug-reference)
-  (let ((bug-reference-url-format bug-reference-url-format)
-        (bug-reference-bug-regexp bug-reference-bug-regexp)
-        (bug-reference-mode (derived-mode-p 'text-mode 'conf-mode))
-        (bug-reference-prog-mode (derived-mode-p 'prog-mode)))
-    (bug-reference--run-auto-setup)
-    (unwind-protect
-        (catch 'found
-          (bug-reference-fontify (line-beginning-position) (line-end-position))
-          (dolist (o (overlays-at (point)))
-            ;; It should only be possible to have one URL overlay.
-            (when-let (url (overlay-get o 'bug-reference-url))
-              (browse-url url)
-              (throw 'found t))))
-      (bug-reference-unfontify (line-beginning-position) (line-end-position)))))
+  (when (fboundp 'bug-reference-try-setup-from-vc)
+    (let ((old-bug-reference-mode bug-reference-mode)
+          (old-bug-reference-prog-mode bug-reference-prog-mode)
+          (bug-reference-url-format bug-reference-url-format)
+          (bug-reference-bug-regexp bug-reference-bug-regexp))
+      (bug-reference-try-setup-from-vc)
+      (unwind-protect
+          (let ((bug-reference-mode t)
+                (bug-reference-prog-mode nil))
+            (catch 'found
+              (bug-reference-fontify (line-beginning-position) (line-end-position))
+              (dolist (o (overlays-at (point)))
+                ;; It should only be possible to have one URL overlay.
+                (when-let (url (overlay-get o 'bug-reference-url))
+                  (browse-url url)
+
+                  (throw 'found t)))))
+        ;; Restore any messed up fontification as a result of this.
+        (bug-reference-unfontify (line-beginning-position) (line-end-position))
+        (if (or old-bug-reference-mode
+                old-bug-reference-prog-mode)
+            (bug-reference-fontify (line-beginning-position) (line-end-position)))))))
 
 
 ;;
@@ -315,7 +330,7 @@ evil-mode is active."
                      current-prefix-arg))
   (cond ((null identifier) (user-error "Nothing under point"))
         ((+lookup--jump-to :definition identifier nil arg))
-        ((error "Couldn't find the definition of %S" identifier))))
+        ((user-error "Couldn't find the definition of %S" (substring-no-properties identifier)))))
 
 ;;;###autoload
 (defun +lookup/implementations (identifier &optional arg)
@@ -327,7 +342,7 @@ the point or current buffer."
                      current-prefix-arg))
   (cond ((null identifier) (user-error "Nothing under point"))
         ((+lookup--jump-to :implementations identifier nil arg))
-        ((error "Couldn't find the implementations of %S" identifier))))
+        ((user-error "Couldn't find the implementations of %S" (substring-no-properties identifier)))))
 
 ;;;###autoload
 (defun +lookup/type-definition (identifier &optional arg)
@@ -339,7 +354,7 @@ the point or current buffer."
                      current-prefix-arg))
   (cond ((null identifier) (user-error "Nothing under point"))
         ((+lookup--jump-to :type-definition identifier nil arg))
-        ((error "Couldn't find the definition of %S" identifier))))
+        ((user-error "Couldn't find the definition of %S" (substring-no-properties identifier)))))
 
 ;;;###autoload
 (defun +lookup/references (identifier &optional arg)
@@ -352,7 +367,7 @@ search otherwise."
                      current-prefix-arg))
   (cond ((null identifier) (user-error "Nothing under point"))
         ((+lookup--jump-to :references identifier nil arg))
-        ((error "Couldn't find references of %S" identifier))))
+        ((user-error "Couldn't find references of %S" (substring-no-properties identifier)))))
 
 ;;;###autoload
 (defun +lookup/documentation (identifier &optional arg)
@@ -364,7 +379,7 @@ for the current mode/buffer (if any), then falls back to the backends in
   (interactive (list (doom-thing-at-point-or-region)
                      current-prefix-arg))
   (cond ((+lookup--jump-to :documentation identifier #'pop-to-buffer arg))
-        ((user-error "Couldn't find documentation for %S" identifier))))
+        ((user-error "Couldn't find documentation for %S" (substring-no-properties identifier)))))
 
 ;;;###autoload
 (defun +lookup/file (&optional path)

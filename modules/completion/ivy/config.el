@@ -64,7 +64,6 @@ results buffer.")
         ivy-fixed-height-minibuffer t
         ivy-read-action-function #'ivy-hydra-read-action
         ivy-read-action-format-function #'ivy-read-action-format-columns
-        projectile-completion-system 'ivy
         ;; don't show recent files in switch-buffer
         ivy-use-virtual-buffers nil
         ;; ...but if that ever changes, show their full path
@@ -189,7 +188,7 @@ results buffer.")
     [remap describe-function]        #'counsel-describe-function
     [remap describe-variable]        #'counsel-describe-variable
     [remap describe-symbol]          #'counsel-describe-symbol
-    [remap evil-ex-registers]        #'counsel-evil-registers
+    [remap evil-show-registers]      #'counsel-evil-registers
     [remap evil-show-marks]          #'counsel-mark-ring
     [remap execute-extended-command] #'counsel-M-x
     [remap find-file]                #'counsel-find-file
@@ -204,7 +203,7 @@ results buffer.")
     [remap recentf-open-files]       #'counsel-recentf
     [remap set-variable]             #'counsel-set-variable
     [remap swiper]                   #'counsel-grep-or-swiper
-    [remap unicode-chars-list-chars] #'counsel-unicode-char
+    [remap insert-char]              #'counsel-unicode-char
     [remap yank-pop]                 #'counsel-yank-pop)
   :config
   (set-popup-rule! "^\\*ivy-occur" :size 0.35 :ttl 0 :quit nil)
@@ -212,10 +211,10 @@ results buffer.")
   ;; HACK Fix an issue where `counsel-projectile-find-file-action' would try to
   ;;      open a candidate in an occur buffer relative to the wrong buffer,
   ;;      causing it to fail to find the file we want.
-  (defadvice! +ivy--run-from-ivy-directory-a (orig-fn &rest args)
+  (defadvice! +ivy--run-from-ivy-directory-a (fn &rest args)
     :around #'counsel-projectile-find-file-action
     (let ((default-directory (ivy-state-directory ivy-last)))
-      (apply orig-fn args)))
+      (apply fn args)))
 
   ;; Don't use ^ as initial input. Set this here because `counsel' defines more
   ;; of its own, on top of the defaults.
@@ -369,6 +368,7 @@ results buffer.")
   :when (featurep! +fuzzy)
   :unless (featurep! +prescient)
   :defer t  ; is loaded by ivy
+  :preface (setq ivy--flx-featurep (featurep! +fuzzy))
   :init (setq ivy-flx-limit 10000))
 
 (use-package! ivy-avy
@@ -388,11 +388,11 @@ results buffer.")
   ;; REVIEW Remove when raxod502/prescient.el#102 is resolved
   (add-to-list 'ivy-sort-functions-alist '(ivy-resume))
   (setq ivy-prescient-sort-commands
-        '(:not swiper swiper-isearch ivy-switch-buffer
-          lsp-ivy-workspace-symbol ivy-resume ivy--restore-session
-          counsel-grep counsel-git-grep counsel-rg counsel-ag counsel-ack
-          counsel-fzf counsel-pt counsel-imenu counsel-yank-pop counsel-recentf
-          counsel-buffer-or-recentf counsel-outline)
+        '(:not swiper swiper-isearch ivy-switch-buffer lsp-ivy-workspace-symbol
+          ivy-resume ivy--restore-session counsel-grep counsel-git-grep
+          counsel-rg counsel-ag counsel-ack counsel-fzf counsel-pt counsel-imenu
+          counsel-yank-pop counsel-recentf counsel-buffer-or-recentf
+          counsel-outline counsel-org-goto counsel-jq)
         ivy-prescient-retain-classic-highlighting t)
   (defun +ivy-prescient-non-fuzzy (str)
     (let ((prescient-filter-method '(literal regexp)))

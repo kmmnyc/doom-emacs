@@ -109,14 +109,22 @@ side of the modeline, and whose CDR is the right-hand side.")
                                  (if (eq idx len) "\"};" "\",\n")))))
         'xpm t :ascent 'center)))))
 
-(defun +modeline-format-icon (icon label &optional face help-echo voffset)
-  (propertize (concat (all-the-icons-material
-                       icon
-                       :face face
-                       :height 1.1
-                       :v-adjust (or voffset -0.225))
-                      (propertize label 'face face))
-              'help-echo help-echo))
+(defun +modeline-format-icon (icon-set icon label &optional face help-echo voffset)
+  "Build from ICON-SET the ICON with LABEL.
+Using optionals attributes FACE, HELP-ECHO and VOFFSET."
+  (let ((icon-set-fn (pcase icon-set
+                       ('octicon #'all-the-icons-octicon)
+                       ('faicon #'all-the-icons-faicon)
+                       ('material #'all-the-icons-material)
+                       ('alltheicon #'all-the-icons-alltheicon)
+                       ('fileicon #'all-the-icons-fileicon))))
+    (propertize (concat (funcall icon-set-fn
+                                 icon
+                                 :face face
+                                 :height 1.1
+                                 :v-adjust (or voffset -0.225))
+                        (propertize label 'face face))
+                'help-echo help-echo)))
 
 (defun set-modeline! (name &optional default)
   "Set the modeline to NAME.
@@ -410,7 +418,7 @@ Requires `anzu', also `evil-anzu' if using `evil-mode' for compatibility with
                    (let ((error (or .error 0))
                          (warning (or .warning 0))
                          (info (or .info 0)))
-                     (+modeline-format-icon "do_not_disturb_alt"
+                     (+modeline-format-icon 'material "do_not_disturb_alt"
                                             (number-to-string (+ error warning info))
                                             (cond ((> error 0)   'error)
                                                   ((> warning 0) 'warning)
@@ -419,11 +427,12 @@ Requires `anzu', also `evil-anzu' if using `evil-mode' for compatibility with
                                                     error
                                                     warning
                                                     info))))
-               (+modeline-format-icon "check" "" 'success)))
-            (`running     (+modeline-format-icon "access_time" "*" 'mode-line-inactive "Running..."))
-            (`errored     (+modeline-format-icon "sim_card_alert" "!" 'error "Errored!"))
-            (`interrupted (+modeline-format-icon "pause" "!" 'mode-line-inactive "Interrupted"))
-            (`suspicious  (+modeline-format-icon "priority_high" "!" 'error "Suspicious"))))))
+               (+modeline-format-icon 'material "check" "" 'success)))
+            (`running     (+modeline-format-icon 'material "access_time" "*" 'mode-line-inactive "Running..."))
+            (`errored     (+modeline-format-icon 'material "sim_card_alert" "!" 'error "Errored!"))
+            (`interrupted (+modeline-format-icon 'material "pause" "!" 'mode-line-inactive "Interrupted"))
+            (`suspicious  (+modeline-format-icon 'material "priority_high" "!" 'error "Suspicious"))))))
+
 
 
 ;;; `+modeline-selection-info'
@@ -490,6 +499,19 @@ lines are selected, or the NxM dimensions of a block selection.")
                 (concat (upcase (symbol-name (plist-get sys :name)))
                         "  "))))))
 
+(def-modeline-var! +modeline-pdf-page nil
+  "Display page number of pdf"
+  :local t)
+
+(defun +modeline-update-pdf-pages ()
+  "Update PDF pages."
+  (setq +modeline-pdf-page
+        (format "  P%d/%d "
+                (eval `(pdf-view-current-page))
+                (pdf-cache-number-of-pages))))
+
+(add-hook 'pdf-view-change-page-hook #'+modeline-update-pdf-pages)
+
 ;; Clearer mnemonic labels for EOL styles
 (setq eol-mnemonic-dos "CRLF"
       eol-mnemonic-mac "CR"
@@ -532,15 +554,22 @@ lines are selected, or the NxM dimensions of a block selection.")
     " " +modeline-buffer-identification)
   '("" +modeline-modes))
 
-;; (def-modeline! pdf
-;;   '("" +modeline-matches))
+(def-modeline! 'pdf
+  '(""
+    +modeline-matches
+    " "
+    +modeline-buffer-identification
+    +modeline-pdf-page)
+  `(""
+    +modeline-modes
+    "  "))
 ;; TODO (def-modeline! helm ...)
 
 
 ;; Other modes
 (set-modeline! :main 'default)
 (set-modeline-hook! '+doom-dashboard-mode-hook 'project)
-;; (set-modeline-hook! 'pdf-tools-enabled-hook 'pdf)
+(set-modeline-hook! 'pdf-tools-enabled-hook 'pdf)
 (set-modeline-hook! '(special-mode-hook
                       image-mode-hook
                       circe-mode-hook)

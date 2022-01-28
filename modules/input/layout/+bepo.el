@@ -73,6 +73,23 @@ In all cases, 'h' functions go to 'c' and 'l' ones go to 'r' so the navigation k
   (+layout-bepo-rotate-ts-bare-keymap '(read-expression-map))
   (+layout-bepo-rotate-bare-keymap '(evil-window-map) +layout-bepo-cr-rotation-style)
   (+layout-bepo-rotate-evil-keymap +layout-bepo-cr-rotation-style)
+  ;; Remap the visual-mode-map bindings if necessary
+  ;; See https://github.com/emacs-evil/evil/blob/7d00c23496c25a66f90ac7a6a354b1c7f9498162/evil-integration.el#L478-L501
+  ;; Using +layout-bepo-rotate-keymaps is impossible because `evil-define-minor-mode-key' doesn't
+  ;; provide an actual symbol to design the new keymap with, and instead stuff the keymap in
+  ;; an auxiliary-auxiliary `minor-mode-map-alist'-like variable.
+  (after! evil-integration
+    (when evil-respect-visual-line-mode
+      (map! :map visual-line-mode-map
+            :m "t"  #'evil-next-visual-line
+            ;; _Not_ remapping gj and gk because they aren't remapped
+            ;; consistently across all Emacs.
+            :m "s"  #'evil-previous-visual-line
+            :m "È"  #'evil-beginning-of-visual-line
+            :m "gÈ" #'evil-beginning-of-line
+            :m "$"  #'evil-end-of-visual-line
+            :m "g$" #'evil-end-of-line
+            :m "V"  #'evil-visual-screen-line)))
 
   (map! :i "C-t" #'+default-newline
         (:when (featurep! :editor multiple-cursors)
@@ -88,7 +105,7 @@ In all cases, 'h' functions go to 'c' and 'l' ones go to 'r' so the navigation k
          :n "C-#"  #'+popup/raise))
   (after! treemacs
     (+layout-bepo-rotate-ts-bare-keymap '(evil-treemacs-state-map)))
-  (after! (:or helm ivy selectrum icomplete)
+  (after! (:or helm ivy vertico icomplete)
     (+layout-bepo-rotate-keymaps
      '(minibuffer-local-map
        minibuffer-local-ns-map
@@ -118,14 +135,13 @@ In all cases, 'h' functions go to 'c' and 'l' ones go to 'r' so the navigation k
   (after! helm-files
     (+layout-bepo-rotate-bare-keymap '(helm-read-file-map) +layout-bepo-cr-rotation-style)
     (+layout-bepo-rotate-keymaps '(helm-read-file-map)))
-  (after! selectrum
-    (+layout-bepo-rotate-bare-keymap '(selectrum-minibuffer-map) +layout-bepo-cr-rotation-style)
-    (+layout-bepo-rotate-keymaps '(selectrum-minibuffer-map)))
   (after! company
     (+layout-bepo-rotate-bare-keymap '(company-active-map company-search-map) +layout-bepo-cr-rotation-style))
   (after! evil-snipe
     (+layout-bepo-rotate-keymaps
      '(evil-snipe-local-mode-map evil-snipe-override-local-mode-map)))
+  (after! eshell
+    (add-hook 'eshell-first-time-mode-hook (lambda () (+layout-bepo-rotate-keymaps '(eshell-mode-map))) 99))
   (after! lispyville
     ;; <> en direct
     (general-translate-key '(normal motion) 'lispyville-mode-map
@@ -201,10 +217,10 @@ In all cases, 'h' functions go to 'c' and 'l' ones go to 'r' so the navigation k
        magit-staged-section-map
        magit-unstaged-section-map
        magit-untracked-section-map))
-    ;; Without this, "s" is mapped to 'magit-delete-thing (the old "k" for "kill") and
+    ;; Without this, "s" is mapped to `magit-delete-thing' (the old "k" for "kill") and
     ;; takes precedence over the evil command to go up one line
     ;; :nv doesn't work on this, needs to be the bare map.
-    ;; This is the output of `describe-function 'magit-delete-thing` when we add :nv or :nvm
+    ;; This is the output of `describe-function `magit-delete-thing' when we add :nv or :nvm
     ;; Key Bindings
     ;;   evil-collection-magit-mode-map-backup-map <normal-state> x
     ;;   evil-collection-magit-mode-map-backup-map <visual-state> x
@@ -214,7 +230,10 @@ In all cases, 'h' functions go to 'c' and 'l' ones go to 'r' so the navigation k
     ;;   magit-mode-map <normal-state> x
     ;;   magit-mode-map <visual-state> x
     ;;   magit-mode-map s
-    (map! :map magit-mode-map "s" nil)
+    ;; Same thing for t, which gets mapped to `magit-quick-status'
+    (map! :map magit-mode-map
+          "s" nil
+          "t" nil)
     ;; Even though magit bindings are part of evil-collection now, the hook only
     ;; runs on `evil-collection-magit-maps', which is way to short to cover all
     ;; usages. The hook is run manually on other maps

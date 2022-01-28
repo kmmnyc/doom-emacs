@@ -86,25 +86,6 @@
                (not (evil-emacs-state-p)))
       (evil-insert 1))))
 
-(defun +org--get-property (name &optional bound)
-  (save-excursion
-    (let ((re (format "^#\\+%s:[ \t]*\\([^\n]+\\)" (upcase name))))
-      (goto-char (point-min))
-      (when (re-search-forward re bound t)
-        (buffer-substring-no-properties (match-beginning 1) (match-end 1))))))
-
-;;;###autoload
-(defun +org-get-global-property (name &optional file bound)
-  "Get a document property named NAME (string) from an org FILE (defaults to
-current file). Only scans first 2048 bytes of the document."
-  (unless bound
-    (setq bound 256))
-  (if file
-      (with-temp-buffer
-        (insert-file-contents-literally file nil 0 bound)
-        (+org--get-property name))
-    (+org--get-property name bound)))
-
 ;;;###autoload
 (defun +org-get-todo-keywords-for (&optional keyword)
   "Returns the list of todo keywords that KEYWORD belongs to."
@@ -169,6 +150,9 @@ If on a:
         (setq context (org-element-property :parent context)
               type (org-element-type context)))
       (pcase type
+        ((or `citation `citation-reference)
+         (org-cite-follow context arg))
+
         (`headline
          (cond ((memq (bound-and-true-p org-goto-map)
                       (current-active-maps))
@@ -389,8 +373,11 @@ another level of headings on each invocation."
 Made for `org-tab-first-hook' in evil-mode."
   (interactive)
   (cond ((not (and (bound-and-true-p evil-local-mode)
-                   (or (evil-insert-state-p)
-                       (evil-emacs-state-p))))
+                   (evil-insert-state-p)))
+         nil)
+        ((and (bound-and-true-p org-cdlatex-mode)
+              (or (org-inside-LaTeX-fragment-p)
+                  (org-inside-latex-macro-p)))
          nil)
         ((org-at-item-p)
          (if (eq this-command 'org-shifttab)
@@ -418,10 +405,14 @@ Made for `org-tab-first-hook' in evil-mode."
 (defun +org-yas-expand-maybe-h ()
   "Expand a yasnippet snippet, if trigger exists at point or region is active.
 Made for `org-tab-first-hook'."
-  (when (bound-and-true-p yas-minor-mode)
-    (and (let ((major-mode (if (org-in-src-block-p t)
-                               (org-src-get-lang-mode (org-eldoc-get-src-lang))
-                             major-mode))
+  (when (and (featurep! :editor snippets)
+             (require 'yasnippet nil t)
+             (bound-and-true-p yas-minor-mode))
+    (and (let ((major-mode (cond ((org-in-src-block-p t)
+                                  (org-src-get-lang-mode (org-eldoc-get-src-lang)))
+                                 ((org-inside-LaTeX-fragment-p)
+                                  'latex-mode)
+                                 (major-mode)))
                (org-src-tab-acts-natively nil) ; causes breakages
                ;; Smart indentation doesn't work with yasnippet, and painfully slow
                ;; in the few cases where it does.
@@ -429,6 +420,9 @@ Made for `org-tab-first-hook'."
            (cond ((and (or (not (bound-and-true-p evil-local-mode))
                            (evil-insert-state-p)
                            (evil-emacs-state-p))
+                       (or (and (bound-and-true-p yas--tables)
+                                (gethash major-mode yas--tables))
+                           (progn (yas-reload-all) t))
                        (yas--templates-for-key-at-point))
                   (yas-expand)
                   t)
@@ -451,7 +445,10 @@ of the time I just want to peek into the current subtree -- at most, expand
 All my (performant) foldings needs are met between this and `org-show-subtree'
 (on zO for evil users), and `org-cycle' on shift-TAB if I need it."
   (interactive "P")
-  (unless (eq this-command 'org-shifttab)
+  (unless (or (eq this-command 'org-shifttab)
+              (and (bound-and-true-p org-cdlatex-mode)
+                   (or (org-inside-LaTeX-fragment-p)
+                       (org-inside-latex-macro-p))))
     (save-excursion
       (org-beginning-of-line)
       (let (invisible-p)

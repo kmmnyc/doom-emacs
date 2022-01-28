@@ -28,7 +28,8 @@
      (require 'lsp-mode)
      (list (completing-read
             "Select server: "
-            (or (mapcar #'lsp--client-server-id (lsp--find-clients))
+            (or (mapcar #'lsp--client-server-id (lsp--filter-clients (-andfn #'lsp--supports-buffer?
+                                                                             #'lsp--server-binary-present?)))
                 (user-error "No available LSP clients for %S" major-mode))))))
   (require 'lsp-mode)
   (let* ((client (if (symbolp client) client (intern client)))
@@ -48,7 +49,8 @@
                                          nil t)
                  (car workspaces)))
             (lsp-mode +1))
-        (setf (lsp--client-priority match) old-priority)))))
+       (add-transient-hook! 'lsp-after-initialize-hook
+          (setf (lsp--client-priority match) old-priority))))))
 
 ;;;###autoload
 (defun +lsp-lookup-definition-handler ()
@@ -57,7 +59,7 @@
   (when-let (loc (lsp-request "textDocument/definition"
                               (lsp--text-document-position-params)))
     (lsp-show-xrefs (lsp--locations-to-xref-items loc) nil nil)
-    t))
+    'deferred))
 
 ;;;###autoload
 (defun +lsp-lookup-references-handler (&optional include-declaration)
@@ -70,4 +72,4 @@
                                  :context `(:includeDeclaration
                                             ,(lsp-json-bool include-declaration))))))
     (lsp-show-xrefs (lsp--locations-to-xref-items loc) nil t)
-    t))
+    'deferred))

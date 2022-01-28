@@ -64,9 +64,9 @@
                 doom-emacs-dir ,doom-emacs-dir
                 doom-cache-dir ,(expand-file-name "cache/" doom-sandbox-dir)
                 doom-etc-dir   ,(expand-file-name "etc/" doom-sandbox-dir))
-          (defun doom--write-to-etc-dir-a (orig-fn &rest args)
+          (defun doom--write-to-etc-dir-a (fn &rest args)
             (let ((user-emacs-directory doom-etc-dir))
-              (apply orig-fn args)))
+              (apply fn args)))
           (advice-add #'locate-user-emacs-file :around #'doom--write-to-etc-dir-a)
           ;; emacs essential variables
           (setq before-init-time (current-time)
@@ -81,13 +81,6 @@
           (setq package--init-file-ensured t
                 package-user-dir ,package-user-dir
                 package-archives ',package-archives)
-          ;; comp.el
-          (setq comp-deferred-compilation nil
-                native-comp-eln-load-path ',(bound-and-true-p native-comp-eln-load-path)
-                native-comp-async-env-modifier-form ',(bound-and-true-p comp-async-env-modifier-form)
-                comp-deferred-compilation-black-list ',(bound-and-true-p comp-deferred-compilation-black-list)
-                ;; REVIEW Remove me after a couple weeks
-                comp-eln-load-path ',(bound-and-true-p native-comp-eln-load-path))
           ;; (add-hook 'kill-emacs-hook
           ;;           (lambda ()
           ;;             (delete-file user-init-file)
@@ -128,7 +121,17 @@
                  (--run--)))
              (`vanilla       ; nothing loaded
               `(progn
-                 (package-initialize)
+                 (if (boundp 'comp-deferred-compilation)
+                     ;; REVIEW Remove me after a month
+                     (setq comp-deferred-compilation nil
+                           comp-deferred-compilation-deny-list ',(bound-and-true-p native-comp-async-env-modifier-form)
+                           comp-async-env-modifier-form ',(bound-and-true-p native-comp-async-env-modifier-form)
+                           comp-eln-load-path ',(bound-and-true-p native-comp-eln-load-path))
+                   (setq native-comp-deferred-compilation nil
+                         native-comp-deferred-compilation-deny-list ',(bound-and-true-p native-comp-async-env-modifier-form)
+                         native-comp-async-env-modifier-form ',(bound-and-true-p native-comp-async-env-modifier-form)
+                         native-comp-eln-load-path ',(bound-and-true-p native-comp-eln-load-path)))
+                 (package-initialize t)
                  (--run--))))
           ;; Then rerun Emacs' startup hooks to simulate a fresh Emacs session,
           ;; because they've already fired.

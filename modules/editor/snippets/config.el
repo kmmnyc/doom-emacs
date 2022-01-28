@@ -17,22 +17,14 @@
              yas-new-snippet
              yas-visit-snippet-file
              yas-activate-extra-mode
-             yas-deactivate-extra-mode)
+             yas-deactivate-extra-mode
+             yas-maybe-expand-abbrev-key-filter)
   :init
   ;; Remove default ~/.emacs.d/snippets
   (defvar yas-snippet-dirs nil)
 
-  (unless (daemonp)
-    ;; Ensure `yas-reload-all' is called as late as possible. Other modules
-    ;; could have additional configuration for yasnippet. For example,
-    ;; file-templates.
-    (add-transient-hook! 'yas-minor-mode-hook (yas-reload-all)))
-
-  (add-hook! '(text-mode-hook
-               prog-mode-hook
-               conf-mode-hook
-               snippet-mode-hook)
-             #'yas-minor-mode-on)
+  ;; Lazy load yasnippet until it is needed
+  (add-transient-hook! #'company-yasnippet (require 'yasnippet))
 
   :config
   (add-to-list 'doom-debug-variables '(yas-verbosity . 3))
@@ -125,18 +117,18 @@
           (smartparens-mode 1)))))
 
   ;; If in a daemon session, front-load this expensive work:
-  (if (daemonp) (yas-reload-all)))
+  (yas-global-mode +1))
 
 
 (use-package! auto-yasnippet
   :defer t
   :config
   (setq aya-persist-snippets-dir +snippets-dir)
-  (defadvice! +snippets--inhibit-yas-global-mode-a (orig-fn &rest args)
+  (defadvice! +snippets--inhibit-yas-global-mode-a (fn &rest args)
     "auto-yasnippet enables `yas-global-mode'. This is obnoxious for folks like
 us who use yas-minor-mode and enable yasnippet more selectively. This advice
 swaps `yas-global-mode' with `yas-minor-mode'."
     :around '(aya-expand aya-open-line)
     (letf! ((#'yas-global-mode #'yas-minor-mode)
             (yas-global-mode yas-minor-mode))
-      (apply orig-fn args))))
+      (apply fn args))))

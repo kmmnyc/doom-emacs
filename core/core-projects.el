@@ -35,8 +35,15 @@ debian, and derivatives). On most it's 'fd'.")
         projectile-globally-ignored-file-suffixes '(".elc" ".pyc" ".o")
         projectile-kill-buffers-filter 'kill-only-files
         projectile-known-projects-file (concat doom-cache-dir "projectile.projects")
-        projectile-ignored-projects (list "~/" temporary-file-directory)
-        projectile-ignored-project-function #'doom-project-ignored-p)
+        projectile-ignored-projects '("~/")
+        projectile-ignored-project-function #'doom-project-ignored-p
+
+        ;; The original `projectile-default-mode-line' can be expensive over
+        ;; TRAMP, so we gimp it in remote buffers.
+        projectile-mode-line-function
+        (lambda ()
+          (if (file-remote-p default-directory) ""
+            (projectile-default-mode-line))))
 
   (global-set-key [remap evil-jump-to-tag] #'projectile-find-tag)
   (global-set-key [remap find-tag]         #'projectile-find-tag)
@@ -87,19 +94,17 @@ debian, and derivatives). On most it's 'fd'.")
   (setq compilation-buffer-name-function #'projectile-compilation-buffer-name
         compilation-save-buffers-predicate #'projectile-current-project-buffer-p)
 
-  ;; Override projectile's dirconfig file '.projectile' with doom's project marker '.project'.
+  ;; Support the more generic .project files as an alternative to .projectile
   (defadvice! doom--projectile-dirconfig-file-a ()
     :override #'projectile-dirconfig-file
-    (cond
-     ;; Prefers '.projectile' to maintain compatibility with existing projects.
-     ((file-exists-p! (or ".projectile" ".project") (projectile-project-root)))
-     ((expand-file-name ".project" (projectile-project-root)))))
+    (cond ((file-exists-p! (or ".projectile" ".project") (projectile-project-root)))
+          ((expand-file-name ".project" (projectile-project-root)))))
 
   ;; Disable commands that won't work, as is, and that Doom already provides a
   ;; better alternative for.
-  (put 'projectile-ag 'disabled "Use +{ivy,helm}/project-search instead")
-  (put 'projectile-ripgrep 'disabled "Use +{ivy,helm}/project-search instead")
-  (put 'projectile-grep 'disabled "Use +{ivy,helm}/project-search instead")
+  (put 'projectile-ag 'disabled "Use +default/search-project instead")
+  (put 'projectile-ripgrep 'disabled "Use +default/search-project instead")
+  (put 'projectile-grep 'disabled "Use +default/search-project instead")
 
   ;; Treat current directory in dired as a "file in a project" and track it
   (add-hook 'dired-before-readin-hook #'projectile-track-known-projects-find-file-hook)
@@ -126,6 +131,7 @@ c) are not valid projectile projects."
         (cl-loop with blacklist = (mapcar #'file-truename doom-projectile-cache-blacklist)
                  for proot in (hash-table-keys projectile-projects-cache)
                  if (or (not (stringp proot))
+                        (string-empty-p proot)
                         (>= (length (gethash proot projectile-projects-cache))
                             doom-projectile-cache-limit)
                         (member (substring proot 0 -1) blacklist)
@@ -138,19 +144,6 @@ c) are not valid projectile projects."
                  and do (remhash proot projectile-project-type-cache))
         (projectile-serialize-cache))))
 
-  ;; It breaks projectile's project root resolution if HOME is a project (e.g.
-  ;; it's a git repo). In that case, we disable bottom-up root searching to
-  ;; prevent issues. This makes project resolution a little slower and less
-  ;; accurate in some cases.
-  (let ((default-directory "~"))
-    (when (cl-find-if #'projectile-file-exists-p
-                      projectile-project-root-files-bottom-up)
-      (doom-log "HOME appears to be a project. Disabling bottom-up root search.")
-      (setq projectile-project-root-files
-            (append projectile-project-root-files-bottom-up
-                    projectile-project-root-files)
-            projectile-project-root-files-bottom-up nil)))
-
   ;; Some MSYS utilities auto expanded the `/' path separator, so we need to prevent it.
   (when IS-WINDOWS
     (setenv "MSYS_NO_PATHCONV" "1") ; Fix path in Git Bash
@@ -159,19 +152,23 @@ c) are not valid projectile projects."
   ;; HACK Don't rely on VCS-specific commands to generate our file lists. That's
   ;;      7 commands to maintain, versus the more generic, reliable and
   ;;      performant `fd' or `ripgrep'.
-  (defadvice! doom--only-use-generic-command-a (vcs)
+  (defadvice! doom--only-use-generic-command-a (fn vcs)
     "Only use `projectile-generic-command' for indexing project files.
 And if it's a function, evaluate it."
-    :override #'projectile-get-ext-command
-    (if (functionp projectile-generic-command)
+    :around #'projectile-get-ext-command
+    (if (and (functionp projectile-generic-command)
+             (not (file-remote-p default-directory)))
         (funcall projectile-generic-command vcs)
-      projectile-generic-command))
+      (let ((projectile-git-submodule-command
+             (get 'projectile-git-submodule-command 'initial-value)))
+        (funcall fn vcs))))
 
   ;; `projectile-generic-command' doesn't typically support a function, but my
   ;; `doom--only-use-generic-command-a' advice allows this. I do it this way so
   ;; that projectile can adapt to remote systems (over TRAMP), rather then look
   ;; for fd/ripgrep on the remote system simply because it exists on the host.
   ;; It's faster too.
+  (put 'projectile-git-submodule-command 'initial-value projectile-git-submodule-command)
   (setq projectile-git-submodule-command nil
         projectile-indexing-method 'hybrid
         projectile-generic-command
@@ -194,7 +191,7 @@ And if it's a function, evaluate it."
                     (if IS-WINDOWS " --path-separator=/")))
            ("find . -type f -print0"))))
 
-  (defadvice! doom--projectile-default-generic-command-a (orig-fn &rest args)
+  (defadvice! doom--projectile-default-generic-command-a (fn &rest args)
     "If projectile can't tell what kind of project you're in, it issues an error
 when using many of projectile's command, e.g. `projectile-compile-command',
 `projectile-run-project', `projectile-test-project', and
@@ -203,7 +200,7 @@ when using many of projectile's command, e.g. `projectile-compile-command',
 This suppresses the error so these commands will still run, but prompt you for
 the command instead."
     :around #'projectile-default-generic-command
-    (ignore-errors (apply orig-fn args))))
+    (ignore-errors (apply fn args))))
 
 
 ;;

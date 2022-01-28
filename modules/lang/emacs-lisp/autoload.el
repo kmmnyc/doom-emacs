@@ -172,10 +172,12 @@ https://emacs.stackexchange.com/questions/10230/how-to-indent-keywords-aligned"
 (defun +emacs-lisp/buttercup-run-file ()
   "Run all buttercup tests in the focused buffer."
   (interactive)
-  (let ((load-path (append (list (doom-path (dir!) "..")
-                                 (or (doom-project-root)
-                                     default-directory))
-                           load-path)))
+  (let ((load-path
+         (append (list (doom-path (dir!) "..")
+                       (or (doom-project-root)
+                           default-directory))
+                 load-path))
+        (buttercup-suites nil))
     (save-selected-window
       (eval-buffer)
       (buttercup-run))
@@ -188,7 +190,8 @@ https://emacs.stackexchange.com/questions/10230/how-to-indent-keywords-aligned"
   (let* ((default-directory (doom-project-root))
          (load-path (append (list (doom-path "test")
                                   default-directory)
-                            load-path)))
+                            load-path))
+         (buttercup-suites nil))
     (buttercup-run-discover)))
 
 ;;;###autoload
@@ -241,6 +244,7 @@ verbosity when editing a file in `doom-private-dir' or `doom-emacs-dir'."
   (when (and (bound-and-true-p flycheck-mode)
              (eq major-mode 'emacs-lisp-mode)
              (or (not default-directory)
+                 (null (buffer-file-name (buffer-base-buffer)))
                  (cl-find-if (doom-partial #'file-in-directory-p default-directory)
                              +emacs-lisp-disable-flycheck-in-dirs)))
     (add-to-list 'flycheck-disabled-checkers 'emacs-lisp-checkdoc)
@@ -271,7 +275,7 @@ verbosity when editing a file in `doom-private-dir' or `doom-emacs-dir'."
     (goto-char (match-beginning 0))
     (and (stringp (plist-get (sexp-at-point) :pin))
          (search-forward ":pin" nil t)
-         (let ((start (re-search-forward "\"[^\"\n]\\{10\\}" nil t))
+         (let ((start (re-search-forward "\"[^\"\n]\\{12\\}" nil t))
                (finish (and (re-search-forward "\"" (line-end-position) t)
                             (match-beginning 0))))
            (when (and start finish)

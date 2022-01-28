@@ -5,8 +5,7 @@
 (package! vc-annotate :built-in t)
 (package! smerge-mode :built-in t)
 
-(package! browse-at-remote :pin "fadf99d6d8e891f3b112e36c772e0eea0b9bc7f2")
-(package! git-commit :pin "577f16da3072a0ae85fba6b25a36a971a61ec6c2")
-(package! git-timemachine :pin "8d675750e921a047707fcdc36d84f8439b19a907")
-(package! gitconfig-mode :pin "14adca24eb6b0b4e311ad144c5d41972c6b044b2")
-(package! gitignore-mode :pin "14adca24eb6b0b4e311ad144c5d41972c6b044b2")
+(package! browse-at-remote :pin "cef26f2c063f2473af42d0e126c8613fe2f709e4")
+(package! git-commit :pin "1eb183e7672bf25fa77ea06d97b3d9c502a698ae")
+(package! git-timemachine :pin "3381797bcbf906b18dff654a2361032d2d01b4a3")
+(package! git-modes :pin "62fbf2e5b84ca789e7bc2f87939386023b5ba3df")
