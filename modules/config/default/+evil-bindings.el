@@ -46,7 +46,8 @@
                 (doom-lookup-key (kbd "TAB") overriding-terminal-local-map))
             cmd)
            ,@(when (modulep! :editor snippets)
-               '(((+yas-active-p)
+               '(((memq (bound-and-true-p yas--active-field-overlay)
+                        (overlays-in (1- (point)) (1+ (point))))
                   #'yas-next-field-or-maybe-expand)
                  ((yas-maybe-expand-abbrev-key-filter 'yas-expand)
                   #'yas-expand)))
@@ -379,8 +380,9 @@
         :desc "New named workspace"       "N"   #'+workspace/new-named
         :desc "Load workspace from file"  "l"   #'+workspace/load
         :desc "Save workspace to file"    "s"   #'+workspace/save
-        :desc "Delete session"            "x"   #'+workspace/kill-session
-        :desc "Delete this workspace"     "d"   #'+workspace/delete
+        :desc "Kill session"              "x"   #'+workspace/kill-session
+        :desc "Kill this workspace"       "d"   #'+workspace/kill
+        :desc "Delete saved workspace"    "D"   #'+workspace/delete
         :desc "Rename workspace"          "r"   #'+workspace/rename
         :desc "Restore last session"      "R"   #'+workspace/restore-last-session
         :desc "Next workspace"            "]"   #'+workspace/switch-right
@@ -484,6 +486,8 @@
        :desc "Browse emacs.d"              "E"   #'doom/browse-in-emacsd
        :desc "Find file"                   "f"   #'find-file
        :desc "Find file from here"         "F"   #'+default/find-file-under-here
+       (:when (modulep! :config literate)
+         :desc "Open heading in literate config" "h" #'+literate/find-heading)
        :desc "Locate file"                 "l"   #'locate
        :desc "Find file in private config" "p"   #'doom/find-file-in-private-config
        :desc "Browse private config"       "P"   #'doom/open-private-config
@@ -522,7 +526,7 @@
         :desc "Magit fetch"               "F"   #'magit-fetch
         :desc "Magit buffer log"          "L"   #'magit-log-buffer-file
         :desc "Git stage this file"       "S"   #'magit-stage-buffer-file
-        :desc "Git unstage this file"     "U"   #'magit-unstage-file
+        :desc "Git unstage this file"     "U"   #'magit-unstage-buffer-file
         (:prefix ("f" . "find")
          :desc "Find file"                 "f"   #'magit-find-file
          :desc "Find gitconfig file"       "g"   #'magit-find-git-config-file
